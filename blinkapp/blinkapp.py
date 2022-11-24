@@ -7,12 +7,14 @@ from blinkpy.auth import Auth
 from blinkpy.helpers.util import json_load
 
 logging.basicConfig(
-    format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-    datefmt='%Y-%m-%d:%H:%M:%S',
-    level=logging.DEBUG)
+    format="%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
+    datefmt="%Y-%m-%d:%H:%M:%S",
+    level=logging.DEBUG,
+)
 
 CREDFILE = environ.get("CREDFILE")
 TIMEDELTA = timedelta(int(environ.get("TIMEDELTA", "1")))
+
 
 def get_date():
     """Return now - timedelta for blinkpy."""

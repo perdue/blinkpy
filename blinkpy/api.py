@@ -1,6 +1,8 @@
 """Implements known blink API calls."""
 
 import logging
+import time
+import random
 from json import dumps
 from blinkpy.helpers.util import get_time, Throttle
 from blinkpy.helpers.constants import DEFAULT_URL, TIMEOUT, DEFAULT_USER_AGENT
@@ -21,7 +23,8 @@ def request_login(
 
     :param auth: Auth instance.
     :param url: Login url.
-    :login_data: Dictionary containing blink login data.
+    :param login_data: Dictionary containing blink login data.
+    :param is_retry:
     """
     headers = {
         "Host": DEFAULT_URL,
@@ -296,6 +299,65 @@ def request_motion_detection_disable(blink, network, camera_id):
     return http_post(blink, url)
 
 
+def request_local_storage_manifest(blink, network, sync_id, max_retries=10):
+    """Request creation of an updated manifest of video clips stored in sync module local storage.
+
+    :param blink: Blink instance.
+    :param network: Sync module network id.
+    :param sync_id: ID of sync module.
+    :param max_retries: Number of polling retries.
+    """
+    url = f"{blink.urls.base_url}/api/v1/accounts/{blink.account_id}/networks/{network}/sync_modules/{sync_id}" + \
+          "/local_storage/manifest/request"
+    # The sync module may be busy processing another request (like saving a new clip).
+    # Poll the endpoint until it is ready, backing off each retry.
+    response = None
+    time.sleep(1)
+    retry = 0
+    while True:
+        if retry > max_retries:
+            break
+        response = http_post(blink, url)
+        if "id" in response:
+            break
+        seconds = _backoff_seconds(retry=retry, default_time=3)
+        _LOGGER.debug("Retrying %s in %d seconds", url, seconds)
+        time.sleep(seconds)
+        retry += 1
+    print(response)
+    return response
+
+
+def get_local_storage_manifest(blink, network, sync_id, manifest_id, max_retries=8):
+    """Request manifest of video clips stored in sync module local storage.
+
+    :param blink: Blink instance.
+    :param network: Sync module network id.
+    :param sync_id: ID of sync module.
+    :param manifest_id: ID of local storage manifest.
+    :param max_retries: Number of polling retries.
+    """
+    url = f"{blink.urls.base_url}/api/v1/accounts/{blink.account_id}/networks/{network}/sync_modules/{sync_id}" + \
+          f"/local_storage/manifest/request/{manifest_id}"
+    # It takes some time for the sync module to build the manifest.
+    # Poll the endpoint until it is ready, backing off each retry.
+    response = None
+    time.sleep(1)
+    retry = 0
+    while True:
+        if retry > max_retries:
+            break
+        response = http_get(blink, url)
+        if "clips" in response:
+            break
+        seconds = _backoff_seconds(retry=retry)
+        _LOGGER.debug("Retrying %s in %d seconds", url, seconds)
+        time.sleep(seconds)
+        retry += 1
+    print(response)
+    return response
+
+
 def http_get(blink, url, stream=False, json=True, is_retry=False, timeout=TIMEOUT):
     """
     Perform an http get request.
@@ -334,3 +396,7 @@ def http_post(blink, url, is_retry=False, data=None, json=True, timeout=TIMEOUT)
         json_resp=json,
         data=data,
     )
+
+
+def _backoff_seconds(retry=0, default_time=1):
+    return default_time * 2 ** retry + random.uniform(0, 1)
