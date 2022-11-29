@@ -1,8 +1,16 @@
 """Defines a sync module for Blink."""
-
 import logging
+import string
+
+from sortedcontainers import SortedSet
+
+import datetime
+import re
+import traceback
+import time
 
 from requests.structures import CaseInsensitiveDict
+from textwrap import wrap
 from blinkpy import api
 from blinkpy.camera import BlinkCamera, BlinkCameraMini, BlinkDoorbell
 from blinkpy.helpers.util import time_to_seconds
@@ -34,12 +42,19 @@ class BlinkSyncModule:
         self.cameras = CaseInsensitiveDict({})
         self.motion_interval = blink.motion_interval
         self.motion = {}
-        self.last_record = {}
+        self.last_records = {}  # A dictionary where keys are the camera names, and values are lists of recent clips.
         self.camera_list = camera_list
         self.available = False
         self.type_key_map = {
             "mini": "owls",
             "doorbell": "doorbells",
+        }
+        self._local_storage = {
+            "enabled": False,
+            "compatible": False,
+            "status": False,
+            "last_manifest_id": None,
+            "manifest": SortedSet()
         }
 
     @property
@@ -52,6 +67,7 @@ class BlinkSyncModule:
             "serial": self.serial,
             "status": self.status,
             "region_id": self.region_id,
+            "local_storage": self.local_storage
         }
         return attr
 
@@ -79,6 +95,10 @@ class BlinkSyncModule:
             self.available = False
             return None
 
+    @property
+    def local_storage(self):
+        return self._local_storage["status"]
+
     @arm.setter
     def arm(self, value):
         """Arm or disarm camera."""
@@ -100,7 +120,6 @@ class BlinkSyncModule:
             _LOGGER.error("Could not extract some sync module info: %s", response)
 
         is_ok = self.get_network_info()
-        self.check_new_videos()
 
         if not is_ok or not self.update_cameras():
             return False
@@ -109,16 +128,37 @@ class BlinkSyncModule:
 
     def sync_initialize(self):
         """Initialize a sync module."""
+        # Doesn't include local store info for some reason.
         response = api.request_syncmodule(self.blink, self.network_id)
         try:
             self.summary = response["syncmodule"]
             self.network_id = self.summary["network_id"]
+            self._init_local_storage(self.summary["id"])
         except (TypeError, KeyError):
             _LOGGER.error(
                 "Could not retrieve sync module information with response: %s", response
             )
             return False
         return response
+
+    def _init_local_storage(self, sync_id):
+        """Initialize local storage from homescreen dictionary"""
+        home_screen = self.blink.homescreen
+        sync_module = None
+        try:
+            sync_modules = home_screen["sync_modules"]
+            for mod in sync_modules:
+                if mod["id"] == sync_id:
+                    self._local_storage["enabled"] = mod["local_storage_enabled"]
+                    self._local_storage["compatible"] = mod["local_storage_compatible"]
+                    self._local_storage["status"] = mod["local_storage_status"] == "active"
+                    sync_module = mod
+        except (TypeError, KeyError):
+            _LOGGER.error(
+                "Could not retrieve sync module information from home screen: %s", home_screen
+            )
+            return False
+        return sync_module
 
     def update_cameras(self, camera_type=BlinkCamera):
         """Update cameras from server."""
@@ -132,7 +172,9 @@ class BlinkSyncModule:
                 if "name" not in camera_config:
                     break
                 blink_camera_type = camera_config.get("type", "")
+                # Keep only alphanumeric characters for name.
                 name = camera_config["name"]
+                self.name = re.sub(r'\W+', '', name)
                 self.motion[name] = False
                 unique_info = self.get_unique_info(name)
                 if blink_camera_type in type_map.keys():
@@ -179,7 +221,7 @@ class BlinkSyncModule:
         try:
             return response["camera"][0]
         except (TypeError, KeyError):
-            _LOGGER.error("Could not extract camera info: %s", response)
+            _LOGGER.error("Could not extract camera info for %d: %s", camera_id, response)
             return {}
 
     def get_network_info(self):
@@ -197,6 +239,7 @@ class BlinkSyncModule:
         """Get all blink cameras and pulls their most recent status."""
         if not self.get_network_info():
             return
+        self.update_local_storage_manifest()
         self.check_new_videos()
         for camera_name in self.cameras.keys():
             camera_id = self.cameras[camera_name].camera_id
@@ -209,17 +252,26 @@ class BlinkSyncModule:
 
     def check_new_videos(self):
         """Check if new videos since last refresh."""
+        _LOGGER.debug("Checking for new videos")
         try:
             interval = self.blink.last_refresh - self.motion_interval * 60
+            last_refresh = datetime.datetime.fromtimestamp(self.blink.last_refresh)
+            _LOGGER.debug(f"last_refresh = {last_refresh}")
+            _LOGGER.debug(f"interval={interval}")
         except TypeError:
             # This is the first start, so refresh hasn't happened yet.
             # No need to check for motion.
+            e = traceback.format_exc()
+            trace = "".join(traceback.format_stack())
+            _LOGGER.debug(f"Error calculating interval (last_refresh={self.blink.last_refresh}): {e} \n{trace}")
+            _LOGGER.info("No new videos since last refresh.")
             return False
 
         resp = api.request_videos(self.blink, time=interval, page=1)
 
         for camera in self.cameras.keys():
             self.motion[camera] = False
+            self.last_records[camera] = []
 
         try:
             info = resp["media"]
@@ -230,19 +282,93 @@ class BlinkSyncModule:
         for entry in info:
             try:
                 name = entry["device_name"]
-                clip = entry["media"]
+                clip_url = entry["media"]
                 timestamp = entry["created_at"]
                 if self.check_new_video_time(timestamp):
                     self.motion[name] = True and self.arm
-                    self.last_record[name] = {"clip": clip, "time": timestamp}
+                    record = {"clip": clip_url, "time": timestamp}
+                    self.last_records[name].append(record)
             except KeyError:
-                _LOGGER.debug("No new videos since last refresh.")
+                last_refresh = datetime.datetime.fromtimestamp(self.blink.last_refresh)
+                _LOGGER.info(f"No new videos for since last refresh at {last_refresh}.")
+
+        if self.local_storage:
+            manifest = self._local_storage["manifest"]
+            last_manifest_id = self._local_storage["last_manifest_id"]
+            num_new = 0
+            for item in manifest.__reversed__():
+                iso_timestamp = item.created_at.isoformat()
+
+                if not self.check_new_video_time(iso_timestamp):
+                    last_refresh = datetime.datetime.fromtimestamp(self.blink.last_refresh)
+                    if num_new > 0:
+                        _LOGGER.info(f"Found {num_new} new items in local storage manifest " +
+                                     f"since last refresh at {last_refresh}.")
+                    else:
+                        _LOGGER.info(f"No new local storage videos since last refresh at {last_refresh}.")
+                    break
+
+                _LOGGER.debug(f"Found new item in local storage manifest: {item}")
+                name = item.name
+                clip_url = item.url(last_manifest_id)
+                item.prepare_download(self.blink)
+                self.motion[name] = True
+                record = {"clip": clip_url, "time": iso_timestamp}
+                self.last_records[name].append(record)
+                num_new += 1
 
         return True
 
     def check_new_video_time(self, timestamp):
         """Check if video has timestamp since last refresh."""
         return time_to_seconds(timestamp) > self.blink.last_refresh
+
+    def update_local_storage_manifest(self):
+        if not self.local_storage:
+            return None
+        _LOGGER.debug("Updating local storage manifest")
+        response = api.request_local_storage_manifest(self.blink, self.network_id, self.sync_id)
+        try:
+            manifest_request_id = response["id"]
+        except (TypeError, KeyError):
+            _LOGGER.error("Could not extract manifest request ID from response: %s", response)
+            return None
+
+        response = api.get_local_storage_manifest(self.blink, self.network_id, self.sync_id, manifest_request_id)
+        try:
+            manifest_id = response["manifest_id"]
+        except (TypeError, KeyError):
+            _LOGGER.error("Could not extract manifest ID from response: %s", response)
+            return None
+
+        self._local_storage["last_manifest_id"] = manifest_id
+        template = string.Template(api.local_storage_clip_url_template()).substitute(
+            account_id=self.blink.account_id,
+            network_id=self.network_id,
+            sync_id=self.sync_id,
+            manifest_id="$manifest_id",
+            clip_id="$clip_id"
+        )
+        num_stored = len(self._local_storage["manifest"])
+        try:
+            for item in response["clips"]:
+                self._local_storage["manifest"].add(
+                    LocalStorageMediaItem(
+                        item["id"],
+                        item["camera_name"],
+                        item["created_at"],
+                        item["size"],
+                        manifest_id,
+                        template)
+                )
+            num_added = len(self._local_storage["manifest"]) - num_stored
+            if num_added > 0:
+                _LOGGER.info(f"Found {num_added} new clip(s) in local storage manifest id={manifest_id}")
+        except (TypeError, KeyError):
+            _LOGGER.error("Could not extract clips list from response: %s", response)
+            return None
+        # print(self._local_storage["manifest"])
+        # print(self._local_storage["last_manifest_id"])
 
 
 class BlinkOwl(BlinkSyncModule):
@@ -369,3 +495,89 @@ class BlinkLotus(BlinkSyncModule):
     @network_info.setter
     def network_info(self, value):
         """Set network_info property."""
+
+
+class LocalStorageMediaItem:
+    """Metadata of media item in the local storage manifest"""
+
+    def __init__(self, item_id, camera_name, created_at, size, manifest_id, url_template):
+        """Initialize media item
+
+        :param item_id:
+        :param camera_name:
+        :param created_at:
+        :param size:
+        """
+        self._id = int(item_id)
+        self._camera_name = camera_name
+        self._created_at = datetime.datetime.fromisoformat(created_at)
+        self._size = size
+        self._url_template = url_template
+        self._manifest_id = manifest_id
+
+    def _build_url(self, manifest_id, clip_id):
+        return string.Template(self._url_template).substitute(manifest_id=manifest_id, clip_id=clip_id)
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def name(self):
+        return self._camera_name
+
+    @property
+    def created_at(self):
+        return self._created_at
+
+    @property
+    def size(self):
+        return self._size
+
+    def url(self, manifest_id=None):
+        """
+        Build the URL new each time since the media item is cached,
+        and the manifest is possibly rebuilt each refresh.
+
+        :param manifest_id: ID of new manifest (if it changed)
+        :return: URL for clip retrieval
+        """
+        if manifest_id:
+            self._manifest_id = manifest_id
+        return self._build_url(self._manifest_id, self._id)
+
+    def prepare_download(self, blink, max_retries=4):
+        url = blink.urls.base_url + self.url()
+        retry = 0
+        response = None
+        while True:
+            if retry > max_retries:
+                break
+            response = api.http_post(blink, url)
+            if "id" in response:
+                break
+            seconds = api.backoff_seconds(retry=retry, default_time=1)
+            _LOGGER.debug("Retrying in %d seconds: %s", seconds, url)
+            time.sleep(seconds)
+            retry += 1
+        return response
+
+    def __repr__(self):
+        return f'LocalStorageMediaItem(id={self._id}, camera_name={self._camera_name}, created_at={self._created_at}'\
+               + f', size={self._size}, manifest_id={self._manifest_id}, url_template={self._url_template})'
+
+    def __str__(self):
+        return self.__repr__()
+
+    def cmp_key(self):
+        return self._created_at
+
+    def __eq__(self, other):
+        return self.cmp_key() == other.cmp_key()
+
+    def __lt__(self, other):
+        return self.cmp_key() < other.cmp_key()
+
+    def __hash__(self):
+        return self._id
+

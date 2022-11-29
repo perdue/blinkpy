@@ -2,7 +2,10 @@
 
 from shutil import copyfileobj
 import logging
+import datetime
 from json import dumps
+import traceback
+import re
 from requests.compat import urljoin
 from blinkpy import api
 from blinkpy.helpers.constants import TIMEOUT_MEDIA
@@ -110,6 +113,9 @@ class BlinkCamera:
         """Download media (image or video)."""
         url = self.thumbnail
         if media_type.lower() == "video":
+            if not self.clip:
+                _LOGGER.error(f"Video clip URL not available: self.clip={self.clip}")
+                return None
             url = self.clip
         return api.http_get(
             self.sync.blink,
@@ -144,7 +150,8 @@ class BlinkCamera:
 
     def extract_config_info(self, config):
         """Extract info from config."""
-        self.name = config.get("name", "unknown")
+        # Keep only alphanumeric characters for name.
+        self.name = re.sub(r'\W+', '', config.get("name", "unknown"))
         self.camera_id = str(config.get("id", "unknown"))
         self.network_id = str(config.get("network_id", "unknown"))
         self.serial = config.get("serial", None)
@@ -202,10 +209,29 @@ class BlinkCamera:
 
         clip_addr = None
         try:
-            clip_addr = self.sync.last_record[self.name]["clip"]
-            self.last_record = self.sync.last_record[self.name]["time"]
-            self.clip = f"{self.sync.urls.base_url}{clip_addr}"
-        except KeyError:
+            def ts(record):
+                time = record["time"]
+                iso_time = datetime.datetime.fromisoformat(time)
+                s = int(iso_time.timestamp())
+                return s
+
+            if len(self.sync.last_records) > 0 and len(self.sync.last_records[self.name]) > 0:
+                # last_records = sorted(self.sync.last_records[self.name], key=ts)
+                print(self.name)
+                # last_records = self.sync.last_records[self.name]
+                last_records = sorted(self.sync.last_records[self.name], key=ts)
+                print(f"last_records={last_records}")
+                most_recent = last_records[-1]
+                print(most_recent)
+                clip_addr = most_recent["clip"]
+                self.last_record = most_recent["time"]
+                print(self.last_record)
+                self.clip = f"{self.sync.urls.base_url}{clip_addr}"
+                print(self.clip)
+        except (KeyError, IndexError):
+            e = traceback.format_exc()
+            trace = "".join(traceback.format_stack())
+            _LOGGER.error(f"Error getting last records for '{self.name}': {e} \n{trace}")
             pass
 
         # If the thumbnail or clip have changed, update the cache
