@@ -10,7 +10,6 @@ import traceback
 import time
 
 from requests.structures import CaseInsensitiveDict
-from textwrap import wrap
 from blinkpy import api
 from blinkpy.camera import BlinkCamera, BlinkCameraMini, BlinkDoorbell
 from blinkpy.helpers.util import time_to_seconds
@@ -221,7 +220,7 @@ class BlinkSyncModule:
         try:
             return response["camera"][0]
         except (TypeError, KeyError):
-            _LOGGER.error("Could not extract camera info for %d: %s", camera_id, response)
+            _LOGGER.error("Could not extract camera info for %s: %s", camera_id, response)
             return {}
 
     def get_network_info(self):
