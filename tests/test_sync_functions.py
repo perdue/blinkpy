@@ -62,16 +62,16 @@ class TestBlinkSyncModule(unittest.TestCase):
         self.assertEqual(sync_module.motion, {})
         self.assertTrue(sync_module.check_new_videos())
         self.assertEqual(
-            sync_module.last_record["foo"],
-            {"clip": "/foo/bar.mp4", "time": "1990-01-01T00:00:00+00:00"},
+            sync_module.last_records["foo"],
+            [{"clip": "/foo/bar.mp4", "time": "1990-01-01T00:00:00+00:00"}],
         )
         self.assertEqual(sync_module.motion, {"foo": True})
         mock_resp.return_value = {"media": []}
         self.assertTrue(sync_module.check_new_videos())
         self.assertEqual(sync_module.motion, {"foo": False})
         self.assertEqual(
-            sync_module.last_record["foo"],
-            {"clip": "/foo/bar.mp4", "time": "1990-01-01T00:00:00+00:00"},
+            sync_module.last_records["foo"],
+            [],
         )
 
     def test_check_new_videos_old_date(self, mock_resp):
@@ -139,9 +139,9 @@ class TestBlinkSyncModule(unittest.TestCase):
         self.assertTrue(sync_module.check_new_videos())
         self.assertEqual(sync_module.motion, {"foo": True})
         expected_result = {
-            "foo": {"clip": "/bar/foo.mp4", "time": "1990-01-01T00:00:00+00:00"}
+            "foo": [{"clip": "/bar/foo.mp4", "time": "1990-01-01T00:00:00+00:00"}]
         }
-        self.assertEqual(sync_module.last_record, expected_result)
+        self.assertEqual(sync_module.last_records, expected_result)
 
     def test_sync_start(self, mock_resp):
         """Test sync start function."""

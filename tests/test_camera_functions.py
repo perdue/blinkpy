@@ -58,8 +58,8 @@ class TestBlinkCameraSetup(unittest.TestCase):
             "thumbnail": "/thumb",
         }
         self.camera.last_record = ["1"]
-        self.camera.sync.last_record = {
-            "new": {"clip": "/test.mp4", "time": "1970-01-01T00:00:00"}
+        self.camera.sync.last_records = {
+            "new": [{"clip": "/test.mp4", "time": "1970-01-01T00:00:00"}]
         }
         mock_resp.side_effect = [
             {"temp": 71},
