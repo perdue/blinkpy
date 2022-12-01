@@ -22,6 +22,7 @@ class MockCamera(BlinkCamera):
     """Mock blink camera object."""
 
     def __init__(self, sync):
+        """Initialize mock camera."""
         super().__init__(sync)
         self.camera_id = random.randint(1, 100000)
 

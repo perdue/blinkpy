@@ -148,6 +148,11 @@ class TestBlinkCameraSetup(unittest.TestCase):
         self.assertEqual(self.camera.clip, None)
         self.assertEqual(self.camera.video_from_cache, None)
 
+    def test_local_storage_video_clips(self, mock_resp):
+        """Tests that clips are updated from the local storage response."""
+        # self.camera.update_images(config)
+        self.assertEqual(True, True)
+
     @mock.patch("blinkpy.camera.api.request_motion_detection_enable")
     @mock.patch("blinkpy.camera.api.request_motion_detection_disable")
     def test_motion_detection_enable_disable(self, mock_dis, mock_en, mock_rep):

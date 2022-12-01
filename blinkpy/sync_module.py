@@ -41,7 +41,9 @@ class BlinkSyncModule:
         self.cameras = CaseInsensitiveDict({})
         self.motion_interval = blink.motion_interval
         self.motion = {}
-        self.last_records = {}  # A dictionary where keys are the camera names, and values are lists of recent clips.
+        self.last_records = (
+            {}
+        )  # A dictionary where keys are the camera names, and values are lists of recent clips.
         self.camera_list = camera_list
         self.available = False
         self.type_key_map = {
@@ -53,7 +55,7 @@ class BlinkSyncModule:
             "compatible": False,
             "status": False,
             "last_manifest_id": None,
-            "manifest": SortedSet()
+            "manifest": SortedSet(),
         }
 
     @property
@@ -66,7 +68,7 @@ class BlinkSyncModule:
             "serial": self.serial,
             "status": self.status,
             "region_id": self.region_id,
-            "local_storage": self.local_storage
+            "local_storage": self.local_storage,
         }
         return attr
 
@@ -96,6 +98,7 @@ class BlinkSyncModule:
 
     @property
     def local_storage(self):
+        """Indicate if local storage is activated or not (True/False)."""
         return self._local_storage["status"]
 
     @arm.setter
@@ -141,7 +144,7 @@ class BlinkSyncModule:
         return response
 
     def _init_local_storage(self, sync_id):
-        """Initialize local storage from homescreen dictionary"""
+        """Initialize local storage from homescreen dictionary."""
         home_screen = self.blink.homescreen
         sync_module = None
         try:
@@ -150,11 +153,14 @@ class BlinkSyncModule:
                 if mod["id"] == sync_id:
                     self._local_storage["enabled"] = mod["local_storage_enabled"]
                     self._local_storage["compatible"] = mod["local_storage_compatible"]
-                    self._local_storage["status"] = mod["local_storage_status"] == "active"
+                    self._local_storage["status"] = (
+                        mod["local_storage_status"] == "active"
+                    )
                     sync_module = mod
         except (TypeError, KeyError):
             _LOGGER.error(
-                "Could not retrieve sync module information from home screen: %s", home_screen
+                "Could not retrieve sync module information from home screen: %s",
+                home_screen,
             )
             return False
         return sync_module
@@ -173,7 +179,7 @@ class BlinkSyncModule:
                 blink_camera_type = camera_config.get("type", "")
                 # Keep only alphanumeric characters for name.
                 name = camera_config["name"]
-                self.name = re.sub(r'\W+', '', name)
+                self.name = re.sub(r"\W+", "", name)
                 self.motion[name] = False
                 unique_info = self.get_unique_info(name)
                 if blink_camera_type in type_map.keys():
@@ -220,7 +226,9 @@ class BlinkSyncModule:
         try:
             return response["camera"][0]
         except (TypeError, KeyError):
-            _LOGGER.error("Could not extract camera info for %s: %s", camera_id, response)
+            _LOGGER.error(
+                "Could not extract camera info for %s: %s", camera_id, response
+            )
             return {}
 
     def get_network_info(self):
@@ -262,7 +270,9 @@ class BlinkSyncModule:
             # No need to check for motion.
             e = traceback.format_exc()
             trace = "".join(traceback.format_stack())
-            _LOGGER.debug(f"Error calculating interval (last_refresh={self.blink.last_refresh}): {e} \n{trace}")
+            _LOGGER.debug(
+                f"Error calculating interval (last_refresh={self.blink.last_refresh}): {e} \n{trace}"
+            )
             _LOGGER.info("No new videos since last refresh.")
             return False
 
@@ -299,12 +309,18 @@ class BlinkSyncModule:
                 iso_timestamp = item.created_at.isoformat()
 
                 if not self.check_new_video_time(iso_timestamp):
-                    last_refresh = datetime.datetime.fromtimestamp(self.blink.last_refresh)
+                    last_refresh = datetime.datetime.fromtimestamp(
+                        self.blink.last_refresh
+                    )
                     if num_new > 0:
-                        _LOGGER.info(f"Found {num_new} new items in local storage manifest " +
-                                     f"since last refresh at {last_refresh}.")
+                        _LOGGER.info(
+                            f"Found {num_new} new items in local storage manifest "
+                            + f"since last refresh at {last_refresh}."
+                        )
                     else:
-                        _LOGGER.info(f"No new local storage videos since last refresh at {last_refresh}.")
+                        _LOGGER.info(
+                            f"No new local storage videos since last refresh at {last_refresh}."
+                        )
                     break
 
                 _LOGGER.debug(f"Found new item in local storage manifest: {item}")
@@ -323,17 +339,24 @@ class BlinkSyncModule:
         return time_to_seconds(timestamp) > self.blink.last_refresh
 
     def update_local_storage_manifest(self):
+        """Update local storage manifest, which lists all stored clips."""
         if not self.local_storage:
             return None
         _LOGGER.debug("Updating local storage manifest")
-        response = api.request_local_storage_manifest(self.blink, self.network_id, self.sync_id)
+        response = api.request_local_storage_manifest(
+            self.blink, self.network_id, self.sync_id
+        )
         try:
             manifest_request_id = response["id"]
         except (TypeError, KeyError):
-            _LOGGER.error("Could not extract manifest request ID from response: %s", response)
+            _LOGGER.error(
+                "Could not extract manifest request ID from response: %s", response
+            )
             return None
 
-        response = api.get_local_storage_manifest(self.blink, self.network_id, self.sync_id, manifest_request_id)
+        response = api.get_local_storage_manifest(
+            self.blink, self.network_id, self.sync_id, manifest_request_id
+        )
         try:
             manifest_id = response["manifest_id"]
         except (TypeError, KeyError):
@@ -346,7 +369,7 @@ class BlinkSyncModule:
             network_id=self.network_id,
             sync_id=self.sync_id,
             manifest_id="$manifest_id",
-            clip_id="$clip_id"
+            clip_id="$clip_id",
         )
         num_stored = len(self._local_storage["manifest"])
         try:
@@ -358,16 +381,17 @@ class BlinkSyncModule:
                         item["created_at"],
                         item["size"],
                         manifest_id,
-                        template)
+                        template,
+                    )
                 )
             num_added = len(self._local_storage["manifest"]) - num_stored
             if num_added > 0:
-                _LOGGER.info(f"Found {num_added} new clip(s) in local storage manifest id={manifest_id}")
+                _LOGGER.info(
+                    f"Found {num_added} new clip(s) in local storage manifest id={manifest_id}"
+                )
         except (TypeError, KeyError):
             _LOGGER.error("Could not extract clips list from response: %s", response)
             return None
-        # print(self._local_storage["manifest"])
-        # print(self._local_storage["last_manifest_id"])
 
 
 class BlinkOwl(BlinkSyncModule):
@@ -497,10 +521,12 @@ class BlinkLotus(BlinkSyncModule):
 
 
 class LocalStorageMediaItem:
-    """Metadata of media item in the local storage manifest"""
+    """Metadata of media item in the local storage manifest."""
 
-    def __init__(self, item_id, camera_name, created_at, size, manifest_id, url_template):
-        """Initialize media item
+    def __init__(
+        self, item_id, camera_name, created_at, size, manifest_id, url_template
+    ):
+        """Initialize media item.
 
         :param item_id:
         :param camera_name:
@@ -515,28 +541,32 @@ class LocalStorageMediaItem:
         self._manifest_id = manifest_id
 
     def _build_url(self, manifest_id, clip_id):
-        return string.Template(self._url_template).substitute(manifest_id=manifest_id, clip_id=clip_id)
+        return string.Template(self._url_template).substitute(
+            manifest_id=manifest_id, clip_id=clip_id
+        )
 
     @property
     def id(self):
+        """Return media item ID."""
         return self._id
 
     @property
     def name(self):
+        """Return name of camera that captured this media item."""
         return self._camera_name
 
     @property
     def created_at(self):
+        """Return the ISO-formatted creation time stamp of this media item."""
         return self._created_at
 
     @property
     def size(self):
+        """Return the reported size of this media item."""
         return self._size
 
     def url(self, manifest_id=None):
-        """
-        Build the URL new each time since the media item is cached,
-        and the manifest is possibly rebuilt each refresh.
+        """Build the URL new each time since the media item is cached, and the manifest is possibly rebuilt each refresh.
 
         :param manifest_id: ID of new manifest (if it changed)
         :return: URL for clip retrieval
@@ -546,6 +576,7 @@ class LocalStorageMediaItem:
         return self._build_url(self._manifest_id, self._id)
 
     def prepare_download(self, blink, max_retries=4):
+        """Initiate upload of media item from the sync module to Blink cloud servers."""
         url = blink.urls.base_url + self.url()
         retry = 0
         response = None
@@ -562,21 +593,28 @@ class LocalStorageMediaItem:
         return response
 
     def __repr__(self):
-        return f'LocalStorageMediaItem(id={self._id}, camera_name={self._camera_name}, created_at={self._created_at}'\
-               + f', size={self._size}, manifest_id={self._manifest_id}, url_template={self._url_template})'
+        """Create string representation."""
+        return (
+            f"LocalStorageMediaItem(id={self._id}, camera_name={self._camera_name}, created_at={self._created_at}"
+            + f", size={self._size}, manifest_id={self._manifest_id}, url_template={self._url_template})"
+        )
 
     def __str__(self):
+        """Create string representation."""
         return self.__repr__()
 
     def cmp_key(self):
+        """Return key to use for comparison."""
         return self._created_at
 
     def __eq__(self, other):
+        """Check equality."""
         return self.cmp_key() == other.cmp_key()
 
     def __lt__(self, other):
+        """Check less than."""
         return self.cmp_key() < other.cmp_key()
 
     def __hash__(self):
+        """Return unique hash value."""
         return self._id
-

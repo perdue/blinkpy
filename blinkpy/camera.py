@@ -118,6 +118,7 @@ class BlinkCamera:
         return self.get_thumbnail()
 
     def get_thumbnail(self, url=None):
+        """Download thumbnail image."""
         if not url:
             url = self.thumbnail
             if not url:
@@ -132,6 +133,7 @@ class BlinkCamera:
         )
 
     def get_video_clip(self, url=None):
+        """Download video clip."""
         if not url:
             url = self.clip
             if not url:
@@ -171,7 +173,7 @@ class BlinkCamera:
     def extract_config_info(self, config):
         """Extract info from config."""
         # Keep only alphanumeric characters for name.
-        self.name = re.sub(r'\W+', '', config.get("name", "unknown"))
+        self.name = re.sub(r"\W+", "", config.get("name", "unknown"))
         self.camera_id = str(config.get("id", "unknown"))
         self.network_id = str(config.get("network_id", "unknown"))
         self.serial = config.get("serial", None)
@@ -230,25 +232,37 @@ class BlinkCamera:
         clip_addr = None
         self.recent_clips = []
         try:
+
             def ts(record):
                 time = record["time"]
                 iso_time = datetime.datetime.fromisoformat(time)
                 s = int(iso_time.timestamp())
                 return s
 
-            if len(self.sync.last_records) > 0 and len(self.sync.last_records[self.name]) > 0:
+            if (
+                len(self.sync.last_records) > 0
+                and len(self.sync.last_records[self.name]) > 0
+            ):
                 last_records = sorted(self.sync.last_records[self.name], key=ts)
                 for rec in last_records:
                     clip_addr = rec["clip"]
                     self.clip = f"{self.sync.urls.base_url}{clip_addr}"
                     self.last_record = rec["time"]
-                    self.recent_clips.append({"time": self.last_record, "clip": self.clip})
-                _LOGGER.debug(f"Found {len(self.recent_clips)} recent clips for {self.name}")
-                _LOGGER.debug(f"Most recent clip for {self.name} was created at {self.last_record}: {self.clip}")
+                    self.recent_clips.append(
+                        {"time": self.last_record, "clip": self.clip}
+                    )
+                _LOGGER.debug(
+                    f"Found {len(self.recent_clips)} recent clips for {self.name}"
+                )
+                _LOGGER.debug(
+                    f"Most recent clip for {self.name} was created at {self.last_record}: {self.clip}"
+                )
         except (KeyError, IndexError):
             e = traceback.format_exc()
             trace = "".join(traceback.format_stack())
-            _LOGGER.error(f"Error getting last records for '{self.name}': {e} \n{trace}")
+            _LOGGER.error(
+                f"Error getting last records for '{self.name}': {e} \n{trace}"
+            )
             pass
 
         # If the thumbnail or clip have changed, update the cache
@@ -304,14 +318,19 @@ class BlinkCamera:
         with open(path, "wb") as vidfile:
             copyfileobj(response.raw, vidfile)
 
-    def save_recent_clips(self, output_dir="/tmp", file_pattern="${created}_${name}.mp4"):
+    def save_recent_clips(
+        self, output_dir="/tmp", file_pattern="${created}_${name}.mp4"
+    ):
+        """Save all recent clips using timestamp file name pattern."""
         if not output_dir[-1] == "/":
             output_dir += "/"
         for clip in self.recent_clips:
             time = datetime.datetime.fromisoformat(clip["time"])
-            created_at = time.strftime('%Y%m%d_%H%M%S')
+            created_at = time.strftime("%Y%m%d_%H%M%S")
             clip_addr = clip["clip"]
-            path = output_dir + string.Template(file_pattern).substitute(created=created_at, name=self.name)
+            path = output_dir + string.Template(file_pattern).substitute(
+                created=created_at, name=self.name
+            )
             _LOGGER.debug(f"Saving {clip_addr} to {path}")
             media = self.get_video_clip(clip_addr)
             with open(path, "wb") as clip_file:

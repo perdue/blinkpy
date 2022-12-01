@@ -122,9 +122,12 @@ class Blink:
             self.setup_prompt_2fa()
 
         if not self.last_refresh:
-            self.last_refresh = int(time.time() - self.refresh_rate*1.05)
-            _LOGGER.debug(f"Initialized last_refresh to {self.last_refresh} == " +
-                          f"{datetime.datetime.fromtimestamp(self.last_refresh)}")
+            # Initialize last_refresh to be just before the refresh delay period.
+            self.last_refresh = int(time.time() - self.refresh_rate * 1.05)
+            _LOGGER.debug(
+                f"Initialized last_refresh to {self.last_refresh} == "
+                + f"{datetime.datetime.fromtimestamp(self.last_refresh)}"
+            )
 
         return self.setup_post_verify()
 
@@ -233,7 +236,7 @@ class Blink:
                     all_cameras[camera_network] = []
                 for camera in network["cameras"]:
                     # Keep only alphanumeric characters for name.
-                    camera_name = re.sub(r'\W+', '', camera["name"])
+                    camera_name = re.sub(r"\W+", "", camera["name"])
                     all_cameras[camera_network].append(
                         {"name": camera_name, "id": camera["id"], "type": "default"}
                     )
