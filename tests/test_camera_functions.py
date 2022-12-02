@@ -148,10 +148,30 @@ class TestBlinkCameraSetup(unittest.TestCase):
         self.assertEqual(self.camera.clip, None)
         self.assertEqual(self.camera.video_from_cache, None)
 
-    def test_local_storage_video_clips(self, mock_resp):
-        """Tests that clips are updated from the local storage response."""
-        # self.camera.update_images(config)
-        self.assertEqual(True, True)
+    def test_recent_video_clips(self, mock_resp):
+        """Tests that the last records in the sync module are added to the camera recent clips list."""
+        config = {
+            "name": "new",
+            "id": 1234,
+            "network_id": 5678,
+            "serial": "12345678",
+            "enabled": False,
+            "battery_voltage": 90,
+            "battery_state": "ok",
+            "temperature": 68,
+            "wifi_strength": 4,
+            "thumbnail": "/thumb",
+        }
+        self.camera.sync.last_records["foobar"] = []
+        record2 = {"clip": "/clip2", "time": "2022-12-01 00:00:10+00:00"}
+        self.camera.sync.last_records["foobar"].append(record2)
+        record1 = {"clip": "/clip1", "time": "2022-12-01 00:00:00+00:00"}
+        self.camera.sync.last_records["foobar"].append(record1)
+        self.camera.update_images(config)
+        record1["clip"] = self.blink.urls.base_url + "/clip1"
+        record2["clip"] = self.blink.urls.base_url + "/clip2"
+        self.assertEqual(self.camera.recent_clips[0], record1)
+        self.assertEqual(self.camera.recent_clips[1], record2)
 
     @mock.patch("blinkpy.camera.api.request_motion_detection_enable")
     @mock.patch("blinkpy.camera.api.request_motion_detection_disable")
