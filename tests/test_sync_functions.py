@@ -1,4 +1,5 @@
 """Tests camera and system functions."""
+import json
 import unittest
 from unittest import mock
 
@@ -214,3 +215,20 @@ class TestBlinkSyncModule(unittest.TestCase):
             self.assertEqual(
                 test_sync.cameras["fake"].__class__, BlinkDoorbell, msg=debug_msg
             )
+
+    def test_init_local_storage(self, mock_resp):
+        """Test initialization of local storage object."""
+        json_fragment = """{
+            "sync_modules": [
+                {
+                    "id": 123456,
+                    "name": "test",
+                    "local_storage_enabled": true,
+                    "local_storage_compatible": true,
+                    "local_storage_status": "active"
+                }
+            ]
+        }"""
+        self.blink.homescreen = json.loads(json_fragment)
+        self.blink.sync["test"]._init_local_storage(123456)
+        self.assertTrue(self.blink.sync["test"].local_storage)
