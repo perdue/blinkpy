@@ -6,6 +6,7 @@ from blinkpy.blinkpy import Blink
 from blinkpy.helpers.util import BlinkURLHandler
 from blinkpy.sync_module import BlinkSyncModule
 from blinkpy.camera import BlinkCamera
+from tests.test_blink_functions import MockCamera
 
 
 @mock.patch("blinkpy.auth.Auth.query")
@@ -239,4 +240,46 @@ class TestBlinkSyncModule(unittest.TestCase):
 
     def test_check_new_videos_with_local_storage(self, mock_resp):
         """TODO."""
-        self.assertEqual(True, True)
+        self.blink.account_id = 10111213
+        test_sync = self.blink.sync["test"]
+        test_sync._local_storage["status"] = True
+        test_sync.sync_id = 1234
+
+        test_sync.cameras["BackDoor"] = MockCamera(self.blink.sync)
+        test_sync.cameras["FrontDoor"] = MockCamera(self.blink.sync)
+        mock_resp.side_effect = [
+            {"id": 387372591, "network_id": 123456},
+            {
+                "version": "1.0",
+                "manifest_id": "4321",
+                "clips": [
+                    {
+                        "id": "866333964",
+                        "size": "234",
+                        "camera_name": "BackDoor",
+                        "created_at": "2022-12-01T21:11:50+00:00",
+                    },
+                    {
+                        "id": "1568781420",
+                        "size": "430",
+                        "camera_name": "FrontDoor",
+                        "created_at": "2022-12-01T21:11:22+00:00",
+                    },
+                ],
+            },
+            {"media": []},
+            {"id": 489371591, "network_id": 123456},
+            {"id": 489371592, "network_id": 123456},
+        ]
+        test_sync.update_local_storage_manifest()
+        self.assertTrue(test_sync.check_new_videos())
+        self.assertEqual(
+            test_sync.last_records["BackDoor"][0]["clip"],
+            "/api/v1/accounts/10111213/networks/1234/sync_modules/1234/local_storage/"
+            + "manifest/4321/clip/request/866333964",
+        )
+        self.assertEqual(
+            test_sync.last_records["FrontDoor"][0]["clip"],
+            "/api/v1/accounts/10111213/networks/1234/sync_modules/1234/local_storage/"
+            + "manifest/4321/clip/request/1568781420",
+        )
