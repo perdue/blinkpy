@@ -178,3 +178,61 @@ class TestBlinkSyncModule(unittest.TestCase):
         test_sync = self.blink.sync["test"]
         test_sync.camera_list = [{"name": "foobar"}]
         self.assertFalse(test_sync.update_cameras())
+
+    def test_update_local_storage_manifest(self, mock_resp):
+        """Test getting the manifest from the sync module."""
+        self.blink.account_id = 10111213
+        test_sync = self.blink.sync["test"]
+        test_sync._local_storage["status"] = True
+        test_sync.sync_id = 1234
+        mock_resp.side_effect = [
+            {"id": 387372591, "network_id": 123456},
+            {
+                "version": "1.0",
+                "manifest_id": "4321",
+                "clips": [
+                    {
+                        "id": "866333964",
+                        "size": "234",
+                        "camera_name": "BackDoor",
+                        "created_at": "2022-12-01T21:11:50+00:00",
+                    },
+                    {
+                        "id": "1568781420",
+                        "size": "430",
+                        "camera_name": "FrontDoor",
+                        "created_at": "2022-12-01T21:11:22+00:00",
+                    },
+                    {
+                        "id": "1289590916",
+                        "size": "425",
+                        "camera_name": "BackDoor",
+                        "created_at": "2022-12-01T18:12:26+00:00",
+                    },
+                    {
+                        "id": "1893118325",
+                        "size": "186",
+                        "camera_name": "FrontDoor",
+                        "created_at": "2022-12-01T11:35:52+00:00",
+                    },
+                    {
+                        "id": "2358747807",
+                        "size": "452",
+                        "camera_name": "Yard",
+                        "created_at": "2022-12-01T11:34:55+00:00",
+                    },
+                ],
+            },
+        ]
+        test_sync.update_local_storage_manifest()
+        self.assertEqual(len(test_sync._local_storage["manifest"]), 5)
+        self.assertEqual(
+            test_sync._local_storage["manifest"][0].url(),
+            "/api/v1/accounts/10111213/networks/1234/sync_modules/1234/local_storage/"
+            + "manifest/4321/clip/request/2358747807",
+        )
+        self.assertEqual(
+            test_sync._local_storage["manifest"][4].url(),
+            "/api/v1/accounts/10111213/networks/1234/sync_modules/1234/local_storage/"
+            + "manifest/4321/clip/request/866333964",
+        )

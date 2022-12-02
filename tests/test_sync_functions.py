@@ -1,4 +1,5 @@
 """Tests camera and system functions."""
+
 import json
 import unittest
 from unittest import mock
